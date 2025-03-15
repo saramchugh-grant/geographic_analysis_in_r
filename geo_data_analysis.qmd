@@ -1,0 +1,70 @@
+---
+title: "Geographic Analysis in R"
+format: html
+editor: visual
+---
+
+## Overview
+
+The objective of the current document is to explore available R packages to perform geographic data analysis and visualization.
+
+```{r}
+# Load required libraries
+library(ggplot2)
+library(sf)
+library(tigris)
+library(dplyr)
+library(ggmap)
+library(zipcodeR)
+
+# Set random seed for reproducibility
+set.seed(123)
+
+# Define the counties of interest in Pennsylvania
+target_counties <- c("Philadelphia", "Delaware", "Montgomery", "Chester")
+
+# Fetch ZIP codes for each county separately and combine them
+zip_data_list <- lapply(target_counties, function(cty) {
+  zipcodeR::search_county(county = cty, state = "PA")
+})
+
+# Bind the results into one dataframe
+zip_data <- bind_rows(zip_data_list)
+
+# Ensure the dataframe has the necessary columns
+zip_data <- zip_data %>%
+  filter(!is.na(lat) & !is.na(lng))
+
+# Simulate volumes for each ZIP code over the year 2024
+date_seq <- seq.Date(as.Date("2024-01-01"), as.Date("2024-12-31"), by = "month")
+
+# Create a dataset with volumes fluctuating over time
+set.seed(42)
+volume_data <- expand.grid(zipcode = zip_data$zipcode, date = date_seq) %>%
+  mutate(volume = round(runif(n(), min = 50, max = 500))) %>%
+  left_join(zip_data, by = "zipcode")
+
+# Aggregate data to get total volume for CY2024 per ZIP
+zip_summary <- volume_data %>%
+  group_by(zipcode, lat, lng) %>%
+  summarise(total_volume = sum(volume), .groups = "drop")
+
+# Convert to sf object for spatial visualization
+zip_sf <- st_as_sf(zip_summary, coords = c("lng", "lat"), crs = 4326)
+
+# Get Pennsylvania county boundaries for background
+pa_counties <- counties(state = "PA", cb = TRUE, class = "sf") %>%
+  filter(NAME %in% target_counties)
+
+# Plot the heatmap
+ggplot() +
+  geom_sf(data = pa_counties, fill = "gray90", color = "black", alpha = 0.5) +
+  geom_point(data = zip_summary, aes(x = lng, y = lat, size = total_volume, color = total_volume), alpha = 0.7) +
+  scale_color_viridis_c(option = "plasma", name = "Volume") +
+  scale_size(range = c(2, 10)) +
+  labs(title = "CY2024 Volume Distribution by ZIP Code in SE Pennsylvania",
+       subtitle = "Philadelphia, Delaware, Montgomery, and Chester Counties",
+       x = "Longitude", y = "Latitude") +
+  theme_minimal()
+
+```
